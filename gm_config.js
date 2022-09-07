@@ -262,8 +262,7 @@ GM_configStruct.prototype = {
           textContent: 'Save',
           title: 'Save settings',
           className: 'saveclose_buttons',
-          onclick: function () { config.save(); window.location.reload()} 
-} 
+          onclick: function (e) { config.save(e); window.location.reload()}
         }),
 
         create('button', {
