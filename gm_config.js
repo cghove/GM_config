@@ -283,7 +283,7 @@ GM_configStruct.prototype = {
             href: '#',
             title: 'Reset fields to default values',
             className: 'reset',
-            onclick: function(e) { e.preventDefault(); config.reset() }
+            onclick: function(e) { e.preventDefault(e); config.reset(e); window.location.reload() }
           })
       )));
 
