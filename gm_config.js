@@ -1,17 +1,16 @@
 /*
-  GM_config (2025 modernized)
+  GM_config (2025 modernized, HTML-optional)
   Backward-compatible, drop-in replacement for the classic GM_config library.
 
-  Key upgrades:
-  - i18n-ready labels (Save / Close / Reset and tooltips are customizable via `labels`)
-  - Modern JS (const/let, strict equality), safer DOM creation (no innerHTML for dynamic strings)
-  - Accessibility tweaks (roles, focus, ESC close)
-  - Themeable CSS via CSS variables + dark mode preference
-  - Preserves legacy storage (GM_* if available, else localStorage)
-  - Preserves public API and behavior (including window reload after save)
+  Upgrades:
+  - i18n-ready labels: Save / Close / Reset via `labels`
+  - Optional HTML rendering (opt-in): labels.titleHTML, field.labelHTML, field.sectionHTML
+  - Safer DOM defaults (text only unless explicitly enabled)
+  - Accessibility tweaks and theme variables
+  - Legacy storage kept (GM_*), fallback to localStorage
+  - Preserves public API and classic behaviors (like reload on save)
 
-  License: LGPL-3.0-or-later (same as original)
-  Original authors: Mike Medley and contributors
+  License: LGPL-3.0-or-later
 */
 
 /* =========================
@@ -41,6 +40,7 @@ function GM_configInit(config, args) {
     // Default i18n labels (user can override via settings.labels)
     config.labels = {
       title: "User Script Settings",
+      titleHTML: false,              // NEW: allow HTML in title if true
       save: "Save",
       saveTitle: "Save settings",
       close: "Close",
@@ -98,7 +98,6 @@ function GM_configInit(config, args) {
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
 
-      // Host element (frame div/iframe) to mount the UI
       if (typeof arg.appendChild === "function") {
         settings.frame = arg;
         continue;
@@ -106,7 +105,6 @@ function GM_configInit(config, args) {
 
       switch (typeof arg) {
         case "object": {
-          // Either a fields map or callbacks map
           let treatedAsFields = false;
           for (const k in arg) {
             if (typeof arg[k] !== "function") {
@@ -125,18 +123,13 @@ function GM_configInit(config, args) {
           settings.events = { onOpen: arg };
           break;
         case "string":
-          // crude CSS test or a title
-          if (/\w+\s*\{\s*\w+\s*:\s*[\w#().%-]+[\s\S]*\}/.test(arg)) {
-            settings.css = arg;
-          } else {
-            settings.title = arg;
-          }
+          if (/\w+\s*\{\s*\w+\s*:\s*[\w#().%-]+[\s\S]*\}/.test(arg)) settings.css = arg;
+          else settings.title = arg;
           break;
       }
     }
   }
 
-  /* Apply settings */
   // id
   if (settings.id) config.id = settings.id;
   else if (typeof config.id === "undefined") config.id = "GM_config";
@@ -144,7 +137,7 @@ function GM_configInit(config, args) {
   // title (goes into labels.title)
   if (settings.title) config.labels.title = settings.title;
 
-  // labels (i18n)
+  // labels (i18n + options)
   if (settings.labels) {
     config.labels = Object.assign({}, config.labels, settings.labels);
   }
@@ -165,7 +158,7 @@ function GM_configInit(config, args) {
 
   // fields
   if (settings.fields) {
-    const stored = config.read(); // sync read (legacy or localStorage)
+    const stored = config.read();
     const fields = settings.fields;
     const customTypes = settings.types || {};
     const configId = config.id;
@@ -200,47 +193,40 @@ function GM_configInit(config, args) {
  *  Prototype (public API)
  * ========================= */
 GM_configStruct.prototype = {
-  // Legacy init() path support
   init: function () {
     GM_configInit(this, arguments);
     this.onInit();
   },
 
-  // Open the configuration UI
   open: function () {
-    // Prevent double-open of the same instance
     const match = document.getElementById(this.id);
     if (match && (match.tagName === "IFRAME" || match.childNodes.length > 0)) return;
 
     const config = this;
 
-    // Build the config window into a container (iframe or host element)
     function buildConfigWin(body, head, doc) {
       const { create } = config;
       const fields = config.fields;
       const configId = config.id;
 
-      // Inject styles (default + user)
       const styleEl = create("style", { type: "text/css" });
       styleEl.appendChild(doc.createTextNode(config.css.basic + config.css.stylish));
       head.appendChild(styleEl);
 
-      // Wrapper
       const bodyWrapper = create("div", {
         id: configId + "_wrapper",
         role: "dialog",
         "aria-modal": "true"
       });
 
-      // Header and title
       const header = create("div", {
         id: configId + "_header",
         className: "config_header block"
       });
-      header.appendChild(doc.createTextNode(config.labels.title));
+      if (config.labels.titleHTML) header.innerHTML = config.labels.title;
+      else header.appendChild(doc.createTextNode(config.labels.title));
       bodyWrapper.appendChild(header);
 
-      // Dynamic sections and fields
       let section = bodyWrapper;
       let secNum = 0;
 
@@ -256,14 +242,16 @@ GM_configStruct.prototype = {
             })
           );
 
-          // Normalize to [header, desc]
           const sec = Array.isArray(settings.section) ? settings.section : [settings.section];
+          const secHTML = !!settings.sectionHTML;
+
           if (sec[0]) {
             const sh = create("div", {
               className: "section_header center",
               id: configId + "_section_header_" + secNum
             });
-            sh.appendChild(doc.createTextNode(sec[0]));
+            if (secHTML) sh.innerHTML = sec[0];
+            else sh.appendChild(doc.createTextNode(sec[0]));
             section.appendChild(sh);
           }
           if (sec[1]) {
@@ -271,17 +259,16 @@ GM_configStruct.prototype = {
               className: "section_desc center",
               id: configId + "_section_desc_" + secNum
             });
-            sd.appendChild(doc.createTextNode(sec[1]));
+            if (secHTML) sd.innerHTML = sec[1];
+            else sd.appendChild(doc.createTextNode(sec[1]));
             section.appendChild(sd);
           }
           secNum++;
         }
 
-        // Append field
         section.appendChild((field.wrapper = field.toNode(doc)));
       }
 
-      // Buttons bar (Save, Close)
       const buttonsBar = create("div", { className: "buttons_bar", id: configId + "_buttons_holder" });
 
       const saveBtn = create("button", {
@@ -293,7 +280,6 @@ GM_configStruct.prototype = {
       saveBtn.appendChild(doc.createTextNode(config.labels.save));
       saveBtn.addEventListener("click", function (e) {
         config.save(e);
-        // Classic behavior: reload after save so scripts immediately see changes
         try { window.location.reload(); } catch (_) {}
       });
 
@@ -309,7 +295,6 @@ GM_configStruct.prototype = {
       buttonsBar.appendChild(saveBtn);
       buttonsBar.appendChild(closeBtn);
 
-      // Reset (button)
       const resetHolder = create("div", { className: "reset_holder block" });
       const resetBtn = create("button", {
         id: configId + "_resetBtn",
@@ -326,51 +311,40 @@ GM_configStruct.prototype = {
       });
       resetHolder.appendChild(resetBtn);
 
-      // Assemble
       bodyWrapper.appendChild(buttonsBar);
       bodyWrapper.appendChild(resetHolder);
 
-      // Mount
       body.appendChild(bodyWrapper);
 
-      // Center and show
       config.center();
 
-      // Focus management: focus first input or Save button
       setTimeout(() => {
         const firstFieldInput = bodyWrapper.querySelector("input, select, textarea, button");
         (firstFieldInput || saveBtn).focus();
       }, 0);
 
-      // onOpen callback
       config.onOpen(doc, config.frame.contentWindow || window, config.frame);
 
-      // ESC to close
       doc.addEventListener("keydown", function onKey(e) {
         if (e.key === "Escape") config.close();
       }, { passive: true });
 
-      // Resize handler for centering
       (config.frame.contentWindow || window).addEventListener("resize", config.center, false);
 
-      // Mark open
       config.frame.style.display = "block";
       config.isOpen = true;
     }
 
-    // Default frame style: centered overlay
     const defaultStyle =
       "position: fixed; inset: 0; margin: auto; height: 75%; width: 75%; max-height: 95%; max-width: 95%;" +
       " border: 1px solid #000; display: none; opacity: 0; background: transparent; z-index: 9999;";
 
-    // Use provided frame container or create an iframe
     if (this.frame) {
       this.frame.id = this.id;
       this.frame.setAttribute("style", defaultStyle);
       const doc = this.frame.ownerDocument;
       buildConfigWin(this.frame, doc.getElementsByTagName("head")[0], doc);
     } else {
-      // Create iframe
       const iframe = (this.frame = this.create("iframe", {
         id: this.id,
         style: defaultStyle,
@@ -379,18 +353,11 @@ GM_configStruct.prototype = {
       }));
       document.body.appendChild(iframe);
 
-      // Initialize after load
       this.frame.addEventListener("load", () => {
         const frame = this.frame;
-        if (frame.src && !frame.contentDocument) {
-          // Some agents need reset for new context
-          frame.src = "";
-        }
+        if (frame.src && !frame.contentDocument) frame.src = "";
         const doc = frame.contentDocument;
-        if (!doc) {
-          this.log("GM_config failed to initialize default settings dialog node!");
-          return;
-        }
+        if (!doc) { this.log("GM_config failed to initialize default settings dialog node!"); return; }
         const body = doc.getElementsByTagName("body")[0];
         const head = doc.getElementsByTagName("head")[0];
         body.id = this.id;
@@ -398,7 +365,6 @@ GM_configStruct.prototype = {
         buildConfigWin(body, head, doc);
       }, false);
 
-      // Set src last for WebKit compat
       this.frame.src = "about:blank";
     }
   },
@@ -411,7 +377,6 @@ GM_configStruct.prototype = {
   close: function () {
     if (!this.frame) return;
 
-    // If iframe, remove; else clear
     if (this.frame.contentDocument) {
       this.remove(this.frame);
       this.frame = null;
@@ -420,7 +385,6 @@ GM_configStruct.prototype = {
       this.frame.style.display = "none";
     }
 
-    // Clear field nodes to avoid leaks
     const fields = this.fields;
     for (const id in fields) {
       const field = fields[id];
@@ -493,7 +457,6 @@ GM_configStruct.prototype = {
     this.onReset();
   },
 
-  // Safe DOM builder
   create: function () {
     if (arguments.length === 1) {
       return document.createTextNode(arguments[0]);
@@ -511,16 +474,12 @@ GM_configStruct.prototype = {
     }
     for (let i = 2; i < arguments.length; i++) {
       const child = arguments[i];
-      if (typeof child === "string") {
-        el.appendChild(document.createTextNode(child));
-      } else {
-        el.appendChild(child);
-      }
+      if (typeof child === "string") el.appendChild(document.createTextNode(child));
+      else el.appendChild(child);
     }
     return el;
   },
 
-  // Visual center and fade-in
   center: function () {
     const node = this.frame;
     if (!node) return;
@@ -547,30 +506,16 @@ GM_configStruct.prototype = {
     typeof GM_getValue !== "undefined" &&
     typeof GM_getValue("a", "b") !== "undefined";
 
-  // Legacy sync storage (preferred for backward compatibility)
   let setValue, getValue, stringify, parser;
 
   if (!isGM) {
-    setValue = function (name, value) {
-      try { return localStorage.setItem(name, value); }
-      catch (_) { /* ignore quota/csp */ }
-    };
-    getValue = function (name, def) {
-      try {
-        const s = localStorage.getItem(name);
-        return s == null ? def : s;
-      } catch (_) {
-        return def;
-      }
-    };
+    setValue = function (name, value) { try { return localStorage.setItem(name, value); } catch (_) {} };
+    getValue = function (name, def) { try { const s = localStorage.getItem(name); return s == null ? def : s; } catch (_) { return def; } };
     stringify = JSON.stringify;
     parser = JSON.parse;
   } else {
     setValue = function (name, value) { return GM_setValue(name, value); };
-    getValue = function (name, def) {
-      const v = GM_getValue(name);
-      return typeof v === "undefined" ? def : v;
-    };
+    getValue = function (name, def) { const v = GM_getValue(name); return typeof v === "undefined" ? def : v; };
     stringify = typeof JSON === "undefined" ? function (obj) { return obj.toSource(); } : JSON.stringify;
     /* eslint-disable no-new-func */
     parser = typeof JSON === "undefined" ? function (jsonData) { return (new Function("return " + jsonData + ";"))(); } : JSON.parse;
@@ -625,10 +570,8 @@ function GM_configField(settings, stored, id, customType, configId) {
   this.wrapper = null;
   this.save = typeof settings.save === "undefined" ? true : settings.save;
 
-  // Buttons do not store a value
   if (settings.type === "button") this.save = false;
 
-  // Default value
   this["default"] =
     typeof settings["default"] === "undefined"
       ? (customType
@@ -636,10 +579,8 @@ function GM_configField(settings, stored, id, customType, configId) {
           : GM_configDefaultValue(settings.type || "text", settings.options))
       : settings["default"];
 
-  // Current value
   this.value = typeof stored === "undefined" ? this["default"] : stored;
 
-  // Custom type hooks
   if (customType) {
     this.toNode = customType.toNode;
     this.toValue = customType.toValue;
@@ -668,21 +609,22 @@ GM_configField.prototype = {
       title: field.title || ""
     });
 
-    // First property (for label heuristics)
     let firstProp;
     for (const k in field) { firstProp = k; break; }
 
-    // Label (not for button)
     const needsLabel = field.label && type !== "button";
     const labelEl = needsLabel
       ? create("label", {
           id: configId + "_" + id + "_field_label",
-          htmlFor: configId + "_field_" + id,
+          for: configId + "_field_" + id,
           className: "field_label"
         })
       : null;
 
-    if (labelEl) labelEl.appendChild(d.createTextNode(field.label));
+    if (labelEl) {
+      if (field.labelHTML === true) labelEl.innerHTML = field.label;
+      else labelEl.appendChild(d.createTextNode(field.label));
+    }
 
     const attachLabel = (pos, parentNode, beforeEl) => {
       if (!beforeEl) beforeEl = parentNode.firstChild;
@@ -698,7 +640,6 @@ GM_configField.prototype = {
       }
     };
 
-    // Build control
     switch (type) {
       case "textarea": {
         this.node = create("textarea", {
@@ -819,15 +760,11 @@ GM_configField.prototype = {
       case "radio": {
         const radios = node.querySelectorAll("input[type='radio']");
         for (let i = 0; i < radios.length; i++) {
-          if (radios[i].checked) {
-            rval = radios[i].value;
-            break;
-          }
+          if (radios[i].checked) { rval = radios[i].value; break; }
         }
         break;
       }
       case "button":
-        // No value saved
         break;
       case "int":
       case "integer":
@@ -836,13 +773,7 @@ GM_configField.prototype = {
         const raw = node.value;
         const num = Number(raw);
         const isInt = type.substr(0, 3) === "int";
-        const warn =
-          'Field labeled "' +
-          (field.label || this.id) +
-          '" expects a' +
-          (unsigned ? " positive " : " ") +
-          (isInt ? "integer" : "number") +
-          " value";
+        const warn = 'Field labeled "' + (field.label || this.id) + '" expects a' + (unsigned ? " positive " : " ") + (isInt ? "integer" : "number") + " value";
 
         if (raw !== "" && (Number.isNaN(num) || (isInt && Math.ceil(num) !== Math.floor(num)) || (unsigned && num < 0))) {
           alert(warn + ".");
@@ -873,20 +804,14 @@ GM_configField.prototype = {
       case "select": {
         const opts = node.options || [];
         for (let i = 0; i < opts.length; i++) {
-          if (opts[i].textContent === String(this["default"])) {
-            node.selectedIndex = i;
-            break;
-          }
+          if (opts[i].textContent === String(this["default"])) { node.selectedIndex = i; break; }
         }
         break;
       }
       case "radio": {
         const radios = node.querySelectorAll("input[type='radio']");
         for (let i = 0; i < radios.length; i++) {
-          if (radios[i].value === String(this["default"])) {
-            radios[i].checked = true;
-            break;
-          }
+          if (radios[i].value === String(this["default"])) { radios[i].checked = true; break; }
         }
         break;
       }
