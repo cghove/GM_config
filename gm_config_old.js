@@ -65,6 +65,17 @@ function GM_configInit(config, args) {
     config.onReset = config.onReset || function() {};
     config.isOpen = false;
     config.title = 'User Script Settings';
+
+    // NEW: i18n-capable labels (overridable)
+    config.labels = {
+      save: 'Save',
+      close: 'Close',
+      reset: 'Reset to defaults',
+      saveTitle: 'Save settings',
+      closeTitle: 'Close window',
+      resetTitle: 'Reset fields to default values'
+    };
+
     config.css = {
       basic: [
         "#GM_config * { font-family: arial,tahoma,myriad pro,sans-serif; }",
@@ -140,6 +151,19 @@ function GM_configInit(config, args) {
 
   // Set the title
   if (settings.title) config.title = settings.title;
+
+  // NEW: accept labels object and/or legacy root properties (save/close/reset)
+  if (settings.labels && typeof settings.labels === 'object') {
+    for (var k in settings.labels) {
+      if (typeof settings.labels[k] === 'string') config.labels[k] = settings.labels[k];
+    }
+  }
+  if (typeof settings.save === 'string') config.labels.save = settings.save;
+  if (typeof settings.close === 'string') config.labels.close = settings.close;
+  if (typeof settings.reset === 'string') config.labels.reset = settings.reset;
+  if (typeof settings.saveTitle === 'string') config.labels.saveTitle = settings.saveTitle;
+  if (typeof settings.closeTitle === 'string') config.labels.closeTitle = settings.closeTitle;
+  if (typeof settings.resetTitle === 'string') config.labels.resetTitle = settings.resetTitle;
 
   // Set the custom css
   if (settings.css) config.css.stylish = settings.css;
@@ -259,16 +283,16 @@ GM_configStruct.prototype = {
 
         create('button', {
           id: configId + '_saveBtn',
-          textContent: 'Save',
-          title: 'Save settings',
+          textContent: config.labels.save,           // CHANGED
+          title: config.labels.saveTitle,            // CHANGED
           className: 'saveclose_buttons',
           onclick: function (e) { config.save(e); window.location.reload()}
         }),
 
         create('button', {
           id: configId + '_closeBtn',
-          textContent: 'Close',
-          title: 'Close window',
+          textContent: config.labels.close,          // CHANGED
+          title: config.labels.closeTitle,           // CHANGED
           className: 'saveclose_buttons',
           onclick: function () { config.close() }
         }),
@@ -279,9 +303,9 @@ GM_configStruct.prototype = {
           // Reset link
           create('a', {
             id: configId + '_resetLink',
-            textContent: 'Reset to defaults',
+            textContent: config.labels.reset,        // CHANGED
             href: '#',
-            title: 'Reset fields to default values',
+            title: config.labels.resetTitle,         // CHANGED
             className: 'reset',
             onclick: function(e) { e.preventDefault(e); config.reset(e); config.save(e); window.location.reload() }
           })
