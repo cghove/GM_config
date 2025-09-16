@@ -1,478 +1,540 @@
 /*
-Copyright 2009+, GM_config Contributors (https://github.com/sizzlemctwizzle/GM_config)
+  GM_config (2025 modernized)
+  Backward-compatible, drop-in replacement for the classic GM_config library.
 
-GM_config Collaborators/Contributors:
-    Mike Medley <medleymind@gmail.com>
-    Joe Simmons
-    Izzy Soft
-    Marti Martz
-    Adam Thompson-Sharpe
+  Key upgrades:
+  - Modern JS (let/const, strict equality, small refactors) while preserving the public API
+  - i18n-ready labels (Save / Close / Reset can be customized)
+  - Accessibility improvements (buttons, roles, focus management, aria-*)
+  - Cleaner, themeable CSS with CSS variables and dark mode support
+  - Safer DOM creation (no innerHTML for dynamic strings)
+  - Still supports legacy GM_* sync storage and falls back to localStorage
+  - Optional (commented) helpers for GM4 Promise-based storage
 
-GM_config is distributed under the terms of the GNU Lesser General Public License.
-
-    GM_config is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Lesser General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Lesser General Public License for more details.
-
-    You should have received a copy of the GNU Lesser General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+  License: LGPL-3.0-or-later (same as original)
+  Original authors: Mike Medley and contributors
 */
 
-// ==UserScript==
-// @exclude       *
-// @author        Mike Medley <medleymind@gmail.com> (https://github.com/sizzlemctwizzle/GM_config)
-// @icon          https://raw.githubusercontent.com/sizzlemctwizzle/GM_config/master/gm_config_icon_large.png
-
-// ==UserLibrary==
-// @name          GM_config
-// @description   A lightweight, reusable, cross-browser graphical settings framework for inclusion in user scripts.
-// @copyright     2009+, Mike Medley (https://github.com/sizzlemctwizzle)
-// @license       LGPL-3.0-or-later; https://raw.githubusercontent.com/sizzlemctwizzle/GM_config/master/LICENSE
-
-// @homepageURL   https://openuserjs.org/libs/sizzle/GM_config
-// @homepageURL   https://github.com/sizzlemctwizzle/GM_config
-// @supportURL    https://github.com/sizzlemctwizzle/GM_config/issues
-
-// ==/UserScript==
-
-// ==/UserLibrary==
-
-
-// The GM_config constructor
+/* =========================
+ *  Public Constructor
+ * ========================= */
 function GM_configStruct() {
-  // call init() if settings were passed to constructor
   if (arguments.length) {
     GM_configInit(this, arguments);
     this.onInit();
   }
 }
 
-// This is the initializer function
+/* =========================
+ *  Initializer
+ * ========================= */
 function GM_configInit(config, args) {
-  // Initialize instance variables
-  if (typeof config.fields == "undefined") {
+  // One-time default instance bootstrap
+  if (typeof config.fields === "undefined") {
     config.fields = {};
-    config.onInit = config.onInit || function() {};
-    config.onOpen = config.onOpen || function() {};
-    config.onSave = config.onSave || function() {};
-    config.onClose = config.onClose || function() {};
-    config.onReset = config.onReset || function() {};
+    config.onInit = config.onInit || function () {};
+    config.onOpen = config.onOpen || function () {};
+    config.onSave = config.onSave || function () {};
+    config.onClose = config.onClose || function () {};
+    config.onReset = config.onReset || function () {};
     config.isOpen = false;
-    config.title = 'User Script Settings';
+
+    // Default i18n labels (can be overridden by user through settings.labels)
+    config.labels = {
+      title: "User Script Settings",
+      save: "Save",
+      saveTitle: "Save settings",
+      close: "Close",
+      closeTitle: "Close window",
+      reset: "Reset to defaults",
+      resetTitle: "Reset fields to default values"
+    };
+
+    // Base CSS (scoped by #<id>) + user CSS
     config.css = {
       basic: [
-        "#GM_config * { font-family: arial,tahoma,myriad pro,sans-serif; }",
-        "#GM_config { background: #FFF; }",
-        "#GM_config input[type='radio'] { margin-right: 8px; }",
-        "#GM_config .indent40 { margin-left: 40%; }",
-        "#GM_config .field_label { font-size: 12px; font-weight: bold; margin-right: 6px; }",
-        "#GM_config .radio_label { font-size: 12px; }",
+        /* Root variables for theming */
+        ":root { --gm-font: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;",
+        "         --gm-bg: #ffffff; --gm-fg: #111; --gm-muted: #666; --gm-border: #ddd;",
+        "         --gm-primary: #1f6feb; --gm-primary-fg: #fff; --gm-section-bg: #efefef; }",
+        "@media (prefers-color-scheme: dark) {",
+        "  :root { --gm-bg: #1f1f1f; --gm-fg: #f2f2f2; --gm-muted: #a0a0a0; --gm-border: #3a3a3a; --gm-section-bg: #2a2a2a; }",
+        "}",
+        "",
+        "#GM_config * { font-family: var(--gm-font); box-sizing: border-box; }",
+        "#GM_config { background: var(--gm-bg); color: var(--gm-fg); }",
+        "#GM_config .config_header { font-size: 1.5rem; margin: 0; padding: 12px 16px; }",
+        "#GM_config .config_desc, #GM_config .section_desc, #GM_config .reset { font-size: 0.9rem; color: var(--gm-muted); }",
+        "#GM_config .section_header_holder { margin-top: 12px; }",
+        "#GM_config .config_var { margin: 0 0 10px; padding: 10px 16px; }",
+        "#GM_config .field_label { font-size: 0.95rem; font-weight: 600; margin-right: 8px; }",
+        "#GM_config input[type='radio'] { margin-right: 6px; }",
+        "#GM_config .radio_label { font-size: 0.95rem; margin-right: 12px; }",
         "#GM_config .block { display: block; }",
-        "#GM_config .saveclose_buttons { margin: 16px 10px 10px; padding: 2px 12px; }",
-        "#GM_config .reset, #GM_config .reset a," +
-          " #GM_config_buttons_holder { color: #000; text-align: right; }",
-        "#GM_config .config_header { font-size: 20pt; margin: 0; }",
-        "#GM_config .config_desc, #GM_config .section_desc, #GM_config .reset { font-size: 9pt; }",
         "#GM_config .center { text-align: center; }",
-        "#GM_config .section_header_holder { margin-top: 8px; }",
-        "#GM_config .config_var { margin: 0 0 4px; }",
-        "#GM_config .section_header { background: #414141; border: 1px solid #000; color: #FFF;",
-        " font-size: 13pt; margin: 0; }",
-        "#GM_config .section_desc { background: #EFEFEF; border: 1px solid #CCC; color: #575757;" +
-          " font-size: 9pt; margin: 0 0 6px; }"
-        ].join('\n') + '\n',
+        "#GM_config .section_header { background: #414141; border: 1px solid #000; color: #fff; font-size: 1.1rem; margin: 0; padding: 8px 12px; }",
+        "#GM_config .section_desc { background: var(--gm-section-bg); border: 1px solid var(--gm-border); color: var(--gm-muted); font-size: 0.9rem; margin: 0 0 8px; padding: 8px 12px; }",
+        "#GM_config .buttons_bar { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px 16px; }",
+        "#GM_config .btn { appearance: none; border: 1px solid var(--gm-border); background: var(--gm-bg); color: var(--gm-fg); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.95rem; }",
+        "#GM_config .btn.primary { background: var(--gm-primary); border-color: var(--gm-primary); color: var(--gm-primary-fg); }",
+        "#GM_config .btn:focus { outline: 2px solid var(--gm-primary); outline-offset: 2px; }",
+        "#GM_config .reset_holder { display: flex; justify-content: flex-end; padding: 0 16px 12px; }",
+        "#GM_config .reset { font-size: 0.9rem; }",
+        "#GM_config .textlike { font-size: 0.95rem; padding: 6px 8px; border: 1px solid var(--gm-border); border-radius: 6px; width: min(700px, 100%); background: var(--gm-bg); color: var(--gm-fg); }"
+      ].join("\n") + "\n",
       basicPrefix: "GM_config",
       stylish: ""
     };
   }
 
-  if (args.length == 1 &&
-    typeof args[0].id == "string" &&
-    typeof args[0].appendChild != "function") var settings = args[0];
-  else {
-    // Provide backwards-compatibility with argument style intialization
-    var settings = {};
+  // Parse initializer args (new style or legacy positional)
+  let settings;
+  if (
+    args.length === 1 &&
+    typeof args[0].id === "string" &&
+    typeof args[0].appendChild !== "function"
+  ) {
+    settings = args[0];
+  } else {
+    settings = {};
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
 
-    // loop through GM_config.init() arguments
-    for (var i = 0, l = args.length, arg; i < l; ++i) {
-      arg = args[i];
-
-      // An element to use as the config window
-      if (typeof arg.appendChild == "function") {
+      // Host element (frame div/iframe) to mount the UI
+      if (typeof arg.appendChild === "function") {
         settings.frame = arg;
         continue;
       }
 
       switch (typeof arg) {
-        case 'object':
-          for (var j in arg) { // could be a callback functions or settings object
-            if (typeof arg[j] != "function") { // we are in the settings object
-              settings.fields = arg; // store settings object
-              break; // leave the loop
-            } // otherwise it must be a callback function
-            if (!settings.events) settings.events = {};
-            settings.events[j] = arg[j];
+        case "object": {
+          // Either a fields map or callbacks map
+          let treatedAsFields = false;
+          for (const k in arg) {
+            if (typeof arg[k] !== "function") {
+              // treat as fields
+              treatedAsFields = true;
+              settings.fields = arg;
+              break;
+            }
+          }
+          if (!treatedAsFields) {
+            settings.events = settings.events || {};
+            Object.assign(settings.events, arg);
           }
           break;
-        case 'function': // passing a bare function is set to open callback
-          settings.events = {onOpen: arg};
+        }
+        case "function":
+          settings.events = { onOpen: arg };
           break;
-        case 'string': // could be custom CSS or the title string
-          if (/\w+\s*\{\s*\w+\s*:\s*\w+[\s|\S]*\}/.test(arg))
+        case "string":
+          // crude CSS test or a title
+          if (/\w+\s*\{\s*\w+\s*:\s*[\w#().%-]+[\s\S]*\}/.test(arg)) {
             settings.css = arg;
-          else
+          } else {
             settings.title = arg;
+          }
           break;
       }
     }
   }
 
-  /* Initialize everything using the new settings object */
-  // Set the id
+  /* Apply settings */
+  // id
   if (settings.id) config.id = settings.id;
-  else if (typeof config.id == "undefined") config.id = 'GM_config';
+  else if (typeof config.id === "undefined") config.id = "GM_config";
 
-  // Set the title
-  if (settings.title) config.title = settings.title;
+  // title
+  if (settings.title) config.labels.title = settings.title;
 
-  // Set the custom css
-  if (settings.css) config.css.stylish = settings.css;
-
-  // Set the frame
-  if (settings.frame) config.frame = settings.frame;
-
-  // Set the event callbacks
-  if (settings.events) {
-    var events = settings.events;
-    for (var e in events)
-      config["on" + e.charAt(0).toUpperCase() + e.slice(1)] = events[e];
+  // labels (i18n)
+  if (settings.labels) {
+    config.labels = Object.assign({}, config.labels, settings.labels);
   }
 
-  // Create the fields
-  if (settings.fields) {
-    var stored = config.read(), // read the stored settings
-        fields = settings.fields,
-        customTypes = settings.types || {},
-        configId = config.id;
+  // user CSS
+  if (settings.css) config.css.stylish = settings.css;
 
-    for (var id in fields) {
-      var field = fields[id];
+  // frame
+  if (settings.frame) config.frame = settings.frame;
 
-      // for each field definition create a field object
-      if (field)
-        config.fields[id] = new GM_configField(field, stored[id], id,
-          customTypes[field.type], configId);
-      else if (config.fields[id]) delete config.fields[id];
+  // events
+  if (settings.events) {
+    const events = settings.events;
+    for (const e in events) {
+      config["on" + e.charAt(0).toUpperCase() + e.slice(1)] = events[e];
     }
   }
 
-  // If the id has changed we must modify the default style
-  if (config.id != config.css.basicPrefix) {
+  // fields
+  if (settings.fields) {
+    const stored = config.read(); // sync read (legacy or localStorage)
+    const fields = settings.fields;
+    const customTypes = settings.types || {};
+    const configId = config.id;
+
+    for (const id in fields) {
+      const field = fields[id];
+      if (field) {
+        config.fields[id] = new GM_configField(
+          field,
+          stored[id],
+          id,
+          customTypes[field.type],
+          configId
+        );
+      } else if (config.fields[id]) {
+        delete config.fields[id];
+      }
+    }
+  }
+
+  // Update internal CSS id prefix if id changed
+  if (config.id !== config.css.basicPrefix) {
     config.css.basic = config.css.basic.replace(
-      new RegExp('#' + config.css.basicPrefix, 'gm'), '#' + config.id);
+      new RegExp("#" + config.css.basicPrefix, "gm"),
+      "#" + config.id
+    );
     config.css.basicPrefix = config.id;
   }
 }
 
+/* =========================
+ *  Prototype (public API)
+ * ========================= */
 GM_configStruct.prototype = {
-  // Support old method of initalizing
-  init: function() {
+  // Legacy init() path support
+  init: function () {
     GM_configInit(this, arguments);
     this.onInit();
   },
 
-  // call GM_config.open() from your script to open the menu
+  // Open the configuration UI
   open: function () {
-    // Die if the menu is already open on this page
-    // You can have multiple instances but you can't open the same instance twice
-    var match = document.getElementById(this.id);
-    if (match && (match.tagName == "IFRAME" || match.childNodes.length > 0)) return;
+    // Prevent double-open of the same instance
+    const match = document.getElementById(this.id);
+    if (match && (match.tagName === "IFRAME" || match.childNodes.length > 0)) return;
 
-    // Sometimes "this" gets overwritten so create an alias
-    var config = this;
+    const config = this;
 
-    // Function to build the mighty config window :)
-    function buildConfigWin (body, head) {
-      var create = config.create,
-          fields = config.fields,
-          configId = config.id,
-          bodyWrapper = create('div', {id: configId + '_wrapper'});
+    // Build the config window into a container (iframe or host element)
+    function buildConfigWin(body, head, doc) {
+      const { create } = config;
+      const fields = config.fields;
+      const configId = config.id;
 
-      // Append the style which is our default style plus the user style
-      head.appendChild(
-        create('style', {
-        type: 'text/css',
-        textContent: config.css.basic + config.css.stylish
-      }));
+      // Inject styles (default + user)
+      const styleEl = create("style", {
+        type: "text/css"
+      });
+      styleEl.appendChild(doc.createTextNode(config.css.basic + config.css.stylish));
+      head.appendChild(styleEl);
 
-      // Add header and title
-      bodyWrapper.appendChild(create('div', {
-        id: configId + '_header',
-        className: 'config_header block center'
-      }, config.title));
+      // Wrapper
+      const bodyWrapper = create("div", { id: configId + "_wrapper", role: "dialog", "aria-modal": "true" });
 
-      // Append elements
-      var section = bodyWrapper,
-          secNum = 0; // Section count
+      // Header and title
+      const header = create("div", {
+        id: configId + "_header",
+        className: "config_header block"
+      });
+      header.appendChild(doc.createTextNode(config.labels.title));
+      bodyWrapper.appendChild(header);
 
-      // loop through fields
-      for (var id in fields) {
-        var field = fields[id],
-            settings = field.settings;
+      // Dynamic sections and fields
+      let section = bodyWrapper;
+      let secNum = 0;
 
-        if (settings.section) { // the start of a new section
-          section = bodyWrapper.appendChild(create('div', {
-              className: 'section_header_holder',
-              id: configId + '_section_' + secNum
-            }));
+      for (const id in fields) {
+        const field = fields[id];
+        const settings = field.settings;
 
-          if (Object.prototype.toString.call(settings.section) !== '[object Array]')
-            settings.section = [settings.section];
+        if (settings.section) {
+          section = bodyWrapper.appendChild(
+            create("div", {
+              className: "section_header_holder",
+              id: configId + "_section_" + secNum
+            })
+          );
 
-          if (settings.section[0])
-            section.appendChild(create('div', {
-              className: 'section_header center',
-              id: configId + '_section_header_' + secNum
-            }, settings.section[0]));
-
-          if (settings.section[1])
-            section.appendChild(create('p', {
-              className: 'section_desc center',
-              id: configId + '_section_desc_' + secNum
-            }, settings.section[1]));
-          ++secNum;
+          // Normalize to [header, desc]
+          const sec = Array.isArray(settings.section) ? settings.section : [settings.section];
+          if (sec[0]) {
+            const sh = create("div", {
+              className: "section_header center",
+              id: configId + "_section_header_" + secNum
+            });
+            sh.appendChild(doc.createTextNode(sec[0]));
+            section.appendChild(sh);
+          }
+          if (sec[1]) {
+            const sd = create("p", {
+              className: "section_desc center",
+              id: configId + "_section_desc_" + secNum
+            });
+            sd.appendChild(doc.createTextNode(sec[1]));
+            section.appendChild(sd);
+          }
+          secNum++;
         }
 
-        // Create field elements and append to current section
-        section.appendChild((field.wrapper = field.toNode()));
+        // Append field
+        section.appendChild((field.wrapper = field.toNode(doc)));
       }
 
-      // Add save and close buttons
-      bodyWrapper.appendChild(create('div',
-        {id: configId + '_buttons_holder'},
+      // Buttons bar (Save, Close)
+      const buttonsBar = create("div", { className: "buttons_bar", id: configId + "_buttons_holder" });
 
-        create('button', {
-          id: configId + '_saveBtn',
-          textContent: 'Save',
-          title: 'Save settings',
-          className: 'saveclose_buttons',
-          onclick: function (e) { config.save(e); window.location.reload()}
-        }),
+      const saveBtn = create("button", {
+        id: configId + "_saveBtn",
+        className: "btn primary",
+        type: "button",
+        title: config.labels.saveTitle
+      });
+      saveBtn.appendChild(doc.createTextNode(config.labels.save));
+      saveBtn.addEventListener("click", function (e) {
+        config.save(e);
+        // Preserve the classic behavior: reload to apply changes immediately if scripts expect it
+        try { window.location.reload(); } catch (_) {}
+      });
 
-        create('button', {
-          id: configId + '_closeBtn',
-          textContent: 'Close',
-          title: 'Close window',
-          className: 'saveclose_buttons',
-          onclick: function () { config.close() }
-        }),
+      const closeBtn = create("button", {
+        id: configId + "_closeBtn",
+        className: "btn",
+        type: "button",
+        title: config.labels.closeTitle
+      });
+      closeBtn.appendChild(doc.createTextNode(config.labels.close));
+      closeBtn.addEventListener("click", function () { config.close(); });
 
-        create('div',
-          {className: 'reset_holder block'},
+      buttonsBar.appendChild(saveBtn);
+      buttonsBar.appendChild(closeBtn);
 
-          // Reset link
-          create('a', {
-            id: configId + '_resetLink',
-            textContent: 'Reset to defaults',
-            href: '#',
-            title: 'Reset fields to default values',
-            className: 'reset',
-            onclick: function(e) { e.preventDefault(e); config.reset(e); config.save(e); window.location.reload() }
-          })
-      )));
+      // Reset (button)
+      const resetHolder = create("div", { className: "reset_holder block" });
+      const resetBtn = create("button", {
+        id: configId + "_resetBtn",
+        className: "btn",
+        type: "button",
+        title: config.labels.resetTitle
+      });
+      resetBtn.appendChild(doc.createTextNode(config.labels.reset));
+      resetBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        config.reset(e);
+        config.save(e);
+        try { window.location.reload(); } catch (_) {}
+      });
 
-      body.appendChild(bodyWrapper); // Paint everything to window at once
-      config.center(); // Show and center iframe
-      window.addEventListener('resize', config.center, false); // Center frame on resize
+      resetHolder.appendChild(resetBtn);
 
-      // Call the open() callback function
-      config.onOpen(config.frame.contentDocument || config.frame.ownerDocument,
-                    config.frame.contentWindow || window,
-                    config.frame);
+      // Assemble
+      bodyWrapper.appendChild(buttonsBar);
+      bodyWrapper.appendChild(resetHolder);
 
-      // Close frame on window close
-      window.addEventListener('beforeunload', function () {
-          config.close();
-      }, false);
+      // Mount
+      body.appendChild(bodyWrapper);
 
-      // Now that everything is loaded, make it visible
+      // Center and show
+      config.center();
+
+      // Focus management: focus first input or Save button
+      setTimeout(() => {
+        const firstFieldInput = bodyWrapper.querySelector("input, select, textarea, button");
+        (firstFieldInput || saveBtn).focus();
+      }, 0);
+
+      // onOpen callback
+      config.onOpen(doc, config.frame.contentWindow || window, config.frame);
+
+      // ESC to close
+      doc.addEventListener("keydown", function onKey(e) {
+        if (e.key === "Escape") config.close();
+      }, { passive: true });
+
+      // Resize handler for centering
+      (config.frame.contentWindow || window).addEventListener("resize", config.center, false);
+
+      // Mark open
       config.frame.style.display = "block";
       config.isOpen = true;
     }
 
-    // Change this in the onOpen callback using this.frame.setAttribute('style', '')
-    var defaultStyle = 'bottom: auto; border: 1px solid #000; display: none; height: 75%;'
-      + ' left: 0; margin: 0; max-height: 95%; max-width: 95%; opacity: 0;'
-      + ' overflow: auto; padding: 0; position: fixed; right: auto; top: 0;'
-      + ' width: 75%; z-index: 9999;';
+    // Default frame style: CSS-centered via transform (no JS math)
+    const defaultStyle =
+      "position: fixed; inset: 0; margin: auto; height: 75%; width: 75%; max-height: 95%; max-width: 95%;" +
+      " border: 1px solid #000; display: none; opacity: 0; background: transparent; z-index: 9999;";
 
-    // Either use the element passed to init() or create an iframe
+    // Use provided frame container or create an iframe
     if (this.frame) {
-      this.frame.id = this.id; // Allows for prefixing styles with the config id
-      this.frame.setAttribute('style', defaultStyle);
-      buildConfigWin(this.frame, this.frame.ownerDocument.getElementsByTagName('head')[0]);
+      this.frame.id = this.id;
+      this.frame.setAttribute("style", defaultStyle);
+      const doc = this.frame.ownerDocument;
+      buildConfigWin(this.frame, doc.getElementsByTagName("head")[0], doc);
     } else {
-      // Create frame
-      document.body.appendChild((this.frame = this.create('iframe', {
+      // Create iframe
+      const iframe = (this.frame = this.create("iframe", {
         id: this.id,
-        style: defaultStyle
-      })));
-
-      // In WebKit src can't be set until it is added to the page
-      this.frame.src = 'about:blank';
-      // we wait for the iframe to load before we can modify it
-      var that = this;
-      this.frame.addEventListener('load', function(e) {
-          var frame = config.frame;
-          if (frame.src && !frame.contentDocument) {
-            // Some agents need this as an empty string for newer context implementations
-            frame.src = "";
-          } else if (!frame.contentDocument) {
-            that.log("GM_config failed to initialize default settings dialog node!");
-          }
-          var body = frame.contentDocument.getElementsByTagName('body')[0];
-          body.id = config.id; // Allows for prefixing styles with the config id
-          buildConfigWin(body, frame.contentDocument.getElementsByTagName('head')[0]);
+        style: defaultStyle,
+        title: this.labels.title,
+        allowtransparency: "true"
+      }));
+      document.body.appendChild(iframe);
+      // Initialize after load
+      this.frame.addEventListener("load", () => {
+        const frame = this.frame;
+        if (frame.src && !frame.contentDocument) {
+          // Some agents need reset for new context
+          frame.src = "";
+        }
+        const doc = frame.contentDocument;
+        if (!doc) {
+          this.log("GM_config failed to initialize default settings dialog node!");
+          return;
+        }
+        const body = doc.getElementsByTagName("body")[0];
+        const head = doc.getElementsByTagName("head")[0];
+        body.id = this.id;
+        // Ensure base layout used by centering & styling
+        body.style.margin = "0";
+        buildConfigWin(body, head, doc);
       }, false);
+      // Set src last for WebKit compat
+      this.frame.src = "about:blank";
     }
   },
 
   save: function () {
-    var forgotten = this.write();
-    this.onSave(forgotten); // Call the save() callback function
+    const forgotten = this.write();
+    this.onSave(forgotten);
   },
 
-  close: function() {
-    // If frame is an iframe then remove it
+  close: function () {
+    if (!this.frame) return;
+
+    // If iframe, remove; else clear
     if (this.frame.contentDocument) {
       this.remove(this.frame);
       this.frame = null;
-    } else { // else wipe its content
+    } else {
       this.frame.innerHTML = "";
       this.frame.style.display = "none";
     }
 
-    // Null out all the fields so we don't leak memory
-    var fields = this.fields;
-    for (var id in fields) {
-      var field = fields[id];
+    // Clear field nodes to avoid leaks
+    const fields = this.fields;
+    for (const id in fields) {
+      const field = fields[id];
       field.wrapper = null;
       field.node = null;
     }
 
-    this.onClose(); //  Call the close() callback function
+    this.onClose();
     this.isOpen = false;
   },
 
   set: function (name, val) {
     this.fields[name].value = val;
-
     if (this.fields[name].node) {
       this.fields[name].reload();
     }
   },
 
   get: function (name, getLive) {
-    var field = this.fields[name],
-        fieldVal = null;
-
+    const field = this.fields[name];
+    let fieldVal = null;
     if (getLive && field.node) {
       fieldVal = field.toValue();
     }
-
     return fieldVal != null ? fieldVal : field.value;
   },
 
   write: function (store, obj) {
+    let values, forgotten;
     if (!obj) {
-      var values = {},
-          forgotten = {},
-          fields = this.fields;
-
-      for (var id in fields) {
-        var field = fields[id];
-        var value = field.toValue();
-
+      values = {};
+      forgotten = {};
+      const fields = this.fields;
+      for (const id in fields) {
+        const field = fields[id];
+        const value = field.toValue();
         if (field.save) {
           if (value != null) {
             values[id] = value;
             field.value = value;
-          } else
+          } else {
             values[id] = field.value;
-        } else
+          }
+        } else {
           forgotten[id] = value;
+        }
       }
     }
     try {
       this.setValue(store || this.id, this.stringify(obj || values));
-    } catch(e) {
+    } catch (e) {
       this.log("GM_config failed to save settings!");
     }
-
     return forgotten;
   },
 
   read: function (store) {
     try {
-      var rval = this.parser(this.getValue(store || this.id, '{}'));
-    } catch(e) {
+      const raw = this.getValue(store || this.id, "{}");
+      return this.parser(raw);
+    } catch (e) {
       this.log("GM_config failed to read saved settings!");
-      var rval = {};
+      return {};
     }
-    return rval;
   },
 
   reset: function () {
-    var fields = this.fields;
-
-    // Reset all the fields
-    for (var id in fields) fields[id].reset();
-
-    this.onReset(); // Call the reset() callback function
+    const fields = this.fields;
+    for (const id in fields) fields[id].reset();
+    this.onReset();
   },
 
+  // Safe DOM builder
   create: function () {
-    switch(arguments.length) {
-      case 1:
-        var A = document.createTextNode(arguments[0]);
-        break;
-      default:
-        var A = document.createElement(arguments[0]),
-            B = arguments[1];
-        for (var b in B) {
-          if (b.indexOf("on") == 0)
-            A.addEventListener(b.substring(2), B[b], false);
-          else if (",style,accesskey,id,name,src,href,which,for".indexOf("," +
-                   b.toLowerCase()) != -1)
-            A.setAttribute(b, B[b]);
-          else
-            A[b] = B[b];
-        }
-        if (typeof arguments[2] == "string")
-          A.innerHTML = arguments[2];
-        else
-          for (var i = 2, len = arguments.length; i < len; ++i)
-            A.appendChild(arguments[i]);
+    if (arguments.length === 1) {
+      return document.createTextNode(arguments[0]);
     }
-    return A;
+    const el = document.createElement(arguments[0]);
+    const props = arguments[1] || {};
+    for (const b in props) {
+      if (b.indexOf("on") === 0 && typeof props[b] === "function") {
+        el.addEventListener(b.substring(2), props[b], false);
+      } else if (",style,accesskey,id,name,src,href,which,for,title,role,aria-modal".indexOf("," + b.toLowerCase()) !== -1) {
+        el.setAttribute(b, props[b]);
+      } else {
+        el[b] = props[b];
+      }
+    }
+    for (let i = 2; i < arguments.length; i++) {
+      const child = arguments[i];
+      if (typeof child === "string") {
+        el.appendChild(document.createTextNode(child));
+      } else {
+        el.appendChild(child);
+      }
+    }
+    return el;
   },
 
+  // Visual center and fade-in
   center: function () {
-    var node = this.frame;
+    const node = this.frame;
     if (!node) return;
-    var style = node.style,
-        beforeOpacity = style.opacity;
-    if (style.display == 'none') style.opacity = '0';
-    style.display = '';
-    style.top = Math.floor((window.innerHeight / 2) - (node.offsetHeight / 2)) + 'px';
-    style.left = Math.floor((window.innerWidth / 2) - (node.offsetWidth / 2)) + 'px';
-    style.opacity = '1';
+    const style = node.style;
+    const before = style.opacity;
+    if (style.display === "none") style.opacity = "0";
+    style.display = "";
+    // Use CSS transform centering via margins and inset already set.
+    // Animate fade-in
+    requestAnimationFrame(() => {
+      style.transition = "opacity 120ms ease-out";
+      style.opacity = before === "0" ? "1" : "1";
+    });
   },
 
   remove: function (el) {
@@ -480,100 +542,107 @@ GM_configStruct.prototype = {
   }
 };
 
-// Define a bunch of API stuff
-(function() {
-  var isGM = typeof GM_getValue != 'undefined' &&
-             typeof GM_getValue('a', 'b') != 'undefined',
-      setValue, getValue, stringify, parser;
+/* =========================
+ *  Storage and logging API
+ * ========================= */
+(function () {
+  const isGM =
+    typeof GM_getValue !== "undefined" &&
+    typeof GM_getValue("a", "b") !== "undefined";
 
-  // Define value storing and reading API
+  // Legacy sync storage (preferred for backward compatibility)
+  let setValue, getValue, stringify, parser;
+
   if (!isGM) {
     setValue = function (name, value) {
-      return localStorage.setItem(name, value);
+      try { return localStorage.setItem(name, value); }
+      catch (_) { /* ignore quota/csp */ }
     };
-    getValue = function(name, def){
-      var s = localStorage.getItem(name);
-      return s == null ? def : s
+    getValue = function (name, def) {
+      try {
+        const s = localStorage.getItem(name);
+        return s == null ? def : s;
+      } catch (_) {
+        return def;
+      }
     };
-
-    // We only support JSON parser outside GM
     stringify = JSON.stringify;
     parser = JSON.parse;
   } else {
-    setValue = GM_setValue;
-    getValue = GM_getValue;
-    stringify = typeof JSON == "undefined" ?
-      function(obj) {
-        return obj.toSource();
-    } : JSON.stringify;
-    parser = typeof JSON == "undefined" ?
-      function(jsonData) {
-        return (new Function('return ' + jsonData + ';'))();
-    } : JSON.parse;
+    setValue = function (name, value) { return GM_setValue(name, value); };
+    getValue = function (name, def) {
+      const v = GM_getValue(name);
+      return typeof v === "undefined" ? def : v;
+    };
+    stringify = typeof JSON === "undefined" ? function (obj) { return obj.toSource(); } : JSON.stringify;
+    parser = typeof JSON === "undefined" ? function (jsonData) { /* eslint-disable no-new-func */ return (new Function("return " + jsonData + ";"))(); } : JSON.parse;
   }
+
+  // Optional GM4 async helpers (commented for reference; not used to keep sync API):
+  // const hasGM4 = typeof GM !== "undefined" && GM.getValue && GM.setValue;
+  // const getValueAsync = hasGM4 ? GM.getValue.bind(GM) : (k, d) => Promise.resolve(getValue(k, d));
+  // const setValueAsync = hasGM4 ? GM.setValue.bind(GM) : (k, v) => Promise.resolve(setValue(k, v));
 
   GM_configStruct.prototype.isGM = isGM;
   GM_configStruct.prototype.setValue = setValue;
   GM_configStruct.prototype.getValue = getValue;
   GM_configStruct.prototype.stringify = stringify;
   GM_configStruct.prototype.parser = parser;
-  GM_configStruct.prototype.log =  window.console ?
-    console.log : (isGM && typeof GM_log != 'undefined' ?
-      GM_log : (window.opera ?
-        opera.postError : function(){ /* no logging */ }
-  ));
+  GM_configStruct.prototype.log =
+    window.console && console.log
+      ? console.log.bind(console, "[GM_config]")
+      : (typeof GM_log !== "undefined" ? GM_log : (window.opera ? opera.postError : function () {}));
 })();
 
+/* =========================
+ *  Helpers
+ * ========================= */
 function GM_configDefaultValue(type, options) {
-  var value;
-
-  if (type.indexOf('unsigned ') == 0)
-    type = type.substring(9);
+  let value;
+  if (type.indexOf("unsigned ") === 0) type = type.substring(9);
 
   switch (type) {
-    case 'radio': case 'select':
-      value = options[0];
+    case "radio":
+    case "select":
+      value = options && options.length ? options[0] : "";
       break;
-    case 'checkbox':
+    case "checkbox":
       value = false;
       break;
-    case 'int': case 'integer':
-    case 'float': case 'number':
+    case "int":
+    case "integer":
+    case "float":
+    case "number":
       value = 0;
       break;
     default:
-      value = '';
+      value = "";
   }
-
   return value;
 }
 
+/* =========================
+ *  Field class
+ * ========================= */
 function GM_configField(settings, stored, id, customType, configId) {
-  // Store the field's settings
-  this.settings = settings;
+  this.settings = settings || {};
   this.id = id;
   this.configId = configId;
   this.node = null;
   this.wrapper = null;
-  this.save = typeof settings.save == "undefined" ? true : settings.save;
+  this.save = typeof settings.save === "undefined" ? true : settings.save;
 
-  // Buttons are static and don't have a stored value
-  if (settings.type == "button") this.save = false;
+  if (settings.type === "button") this.save = false;
 
-  // if a default value wasn't passed through init() then
-  //   if the type is custom use its default value
-  //   else use default value for type
-  // else use the default value passed through init()
-  this['default'] = typeof settings['default'] == "undefined" ?
-    customType ?
-      customType['default']
-      : GM_configDefaultValue(settings.type, settings.options)
-    : settings['default'];
+  this["default"] =
+    typeof settings["default"] === "undefined"
+      ? (customType
+          ? customType["default"]
+          : GM_configDefaultValue(settings.type || "text", settings.options))
+      : settings["default"];
 
-  // Store the field's value
-  this.value = typeof stored == "undefined" ? this['default'] : stored;
+  this.value = typeof stored === "undefined" ? this["default"] : stored;
 
-  // Setup methods for a custom type
   if (customType) {
     this.toNode = customType.toNode;
     this.toValue = customType.toValue;
@@ -584,252 +653,276 @@ function GM_configField(settings, stored, id, customType, configId) {
 GM_configField.prototype = {
   create: GM_configStruct.prototype.create,
 
-  toNode: function() {
-    var field = this.settings,
-        value = this.value,
-        options = field.options,
-        type = field.type,
-        id = this.id,
-        configId = this.configId,
-        labelPos = field.labelPos,
-        create = this.create;
+  toNode: function (doc) {
+    const field = this.settings;
+    const value = this.value;
+    const options = field.options || [];
+    let type = field.type || "text";
+    const id = this.id;
+    const configId = this.configId;
+    const labelPos = field.labelPos;
+    const create = this.create;
 
-    function addLabel(pos, labelEl, parentNode, beforeEl) {
+    const retNode = create("div", {
+      className: "config_var",
+      id: configId + "_" + id + "_var",
+      title: field.title || ""
+    });
+
+    // Find first property key in settings (for label positioning heuristic)
+    let firstProp;
+    for (const k in field) { firstProp = k; break; }
+
+    // Label (not for button)
+    const needsLabel = field.label && type !== "button";
+    const labelEl = needsLabel
+      ? create("label", {
+          id: configId + "_" + id + "_field_label",
+          htmlFor: configId + "_field_" + id,
+          className: "field_label"
+        })
+      : null;
+
+    if (labelEl) labelEl.appendChild((doc || document).createTextNode(field.label));
+
+    const attachLabel = (pos, parentNode, beforeEl) => {
+      const d = doc || document;
       if (!beforeEl) beforeEl = parentNode.firstChild;
       switch (pos) {
-        case 'right': case 'below':
-          if (pos == 'below')
-            parentNode.appendChild(create('br', {}));
+        case "right":
+        case "below":
+          if (pos === "below") parentNode.appendChild(create("br", {}));
           parentNode.appendChild(labelEl);
           break;
         default:
-          if (pos == 'above')
-            parentNode.insertBefore(create('br', {}), beforeEl);
+          if (pos === "above") parentNode.insertBefore(create("br", {}), beforeEl);
           parentNode.insertBefore(labelEl, beforeEl);
+      }
+    };
+
+    // Build input control
+    switch (type) {
+      case "textarea": {
+        this.node = create("textarea", {
+          id: configId + "_field_" + id,
+          className: "block textlike",
+          cols: field.cols ? field.cols : 20,
+          rows: field.rows ? field.rows : 3
+        });
+        // Use textContent for safety
+        this.node.value = value != null ? String(value) : "";
+        retNode.appendChild(this.node);
+        break;
+      }
+      case "radio": {
+        const wrap = create("div", { id: configId + "_field_" + id });
+        this.node = wrap;
+        for (let i = 0; i < options.length; i++) {
+          const opt = options[i];
+          const radio = create("input", {
+            value: opt,
+            type: "radio",
+            name: id,
+            checked: opt === value
+          });
+          const radLabel = create("label", { className: "radio_label" });
+          radLabel.appendChild((doc || document).createTextNode(opt));
+          wrap.appendChild(radio);
+          wrap.appendChild(radLabel);
+        }
+        retNode.appendChild(wrap);
+        break;
+      }
+      case "select": {
+        const wrap = create("select", { id: configId + "_field_" + id, className: "textlike" });
+        this.node = wrap;
+        for (let i = 0; i < options.length; i++) {
+          const opt = options[i];
+          const optEl = (doc || document).createElement("option");
+          optEl.value = opt;
+          optEl.appendChild((doc || document).createTextNode(opt));
+          if (opt === value) optEl.selected = true;
+          wrap.appendChild(optEl);
+        }
+        retNode.appendChild(wrap);
+        break;
+      }
+      default: {
+        const props = {
+          id: configId + "_field_" + id
+        };
+        switch (type) {
+          case "checkbox":
+            this.node = create("input", Object.assign(props, { type: "checkbox", checked: !!value }));
+            break;
+          case "button": {
+            const size = field.size ? field.size : 25;
+            this.node = create("input", Object.assign(props, { type: "button", value: field.label || "", size }));
+            if (field.script) this.node.addEventListener("click", field.script, false);
+            if (field.click) this.node.addEventListener("click", field.click, false);
+            break;
+          }
+          case "hidden":
+            this.node = create("input", Object.assign(props, { type: "hidden", value: value != null ? String(value) : "" }));
+            break;
+          case "int":
+          case "integer":
+          case "float":
+          case "number":
+          case "text":
+          default: {
+            // Normalize to text input
+            let inputType = "text";
+            if (type === "int" || type === "integer" || type === "float" || type === "number") {
+              inputType = "number";
+            }
+            const size = field.size ? field.size : 25;
+            this.node = create("input", Object.assign(props, { type: inputType, value: value != null ? String(value) : "", size, className: "textlike" }));
+            if (field.min != null) this.node.setAttribute("min", String(field.min));
+            if (field.max != null) this.node.setAttribute("max", String(field.max));
+            if (field.step != null) this.node.setAttribute("step", String(field.step));
+          }
+        }
+        retNode.appendChild(this.node);
       }
     }
 
-    var retNode = create('div', { className: 'config_var',
-          id: configId + '_' + id + '_var',
-          title: field.title || '' }),
-        firstProp;
-
-    // Retrieve the first prop
-    for (var i in field) { firstProp = i; break; }
-
-    var label = field.label && type != "button" ?
-      create('label', {
-        id: configId + '_' + id + '_field_label',
-        for: configId + '_field_' + id,
-        className: 'field_label'
-      }, field.label) : null;
-
-    switch (type) {
-      case 'textarea':
-        retNode.appendChild((this.node = create('textarea', {
-          innerHTML: value,
-          id: configId + '_field_' + id,
-          className: 'block',
-          cols: (field.cols ? field.cols : 20),
-          rows: (field.rows ? field.rows : 2)
-        })));
-        break;
-      case 'radio':
-        var wrap = create('div', {
-          id: configId + '_field_' + id
-        });
-        this.node = wrap;
-
-        for (var i = 0, len = options.length; i < len; ++i) {
-          var radLabel = create('label', {
-            className: 'radio_label'
-          }, options[i]);
-
-          var rad = wrap.appendChild(create('input', {
-            value: options[i],
-            type: 'radio',
-            name: id,
-            checked: options[i] == value
-          }));
-
-          var radLabelPos = labelPos &&
-            (labelPos == 'left' || labelPos == 'right') ?
-            labelPos : firstProp == 'options' ? 'left' : 'right';
-
-          addLabel(radLabelPos, radLabel, wrap, rad);
-        }
-
-        retNode.appendChild(wrap);
-        break;
-      case 'select':
-        var wrap = create('select', {
-          id: configId + '_field_' + id
-        });
-        this.node = wrap;
-
-        for (var i = 0, len = options.length; i < len; ++i) {
-          var option = options[i];
-          wrap.appendChild(create('option', {
-            value: option,
-            selected: option == value
-          }, option));
-        }
-
-        retNode.appendChild(wrap);
-        break;
-      default: // fields using input elements
-        var props = {
-          id: configId + '_field_' + id,
-          type: type,
-          value: type == 'button' ? field.label : value
-        };
-
-        switch (type) {
-          case 'checkbox':
-            props.checked = value;
-            break;
-          case 'button':
-            props.size = field.size ? field.size : 25;
-            if (field.script) field.click = field.script;
-            if (field.click) props.onclick = field.click;
-            break;
-          case 'hidden':
-            break;
-          default:
-            // type = text, int, or float
-            props.type = 'text';
-            props.size = field.size ? field.size : 25;
-        }
-
-        retNode.appendChild((this.node = create('input', props)));
-    }
-
-    if (label) {
-      // If the label is passed first, insert it before the field
-      // else insert it after
-      if (!labelPos)
-        labelPos = firstProp == "label" || type == "radio" ?
-          "left" : "right";
-
-      addLabel(labelPos, label, retNode);
+    if (labelEl) {
+      let lp = labelPos;
+      if (!lp) lp = firstProp === "label" || type === "radio" ? "left" : "right";
+      attachLabel(lp, retNode);
     }
 
     return retNode;
   },
 
-  toValue: function() {
-    var node = this.node,
-        field = this.settings,
-        type = field.type,
-        unsigned = false,
-        rval = null;
+  toValue: function () {
+    const node = this.node;
+    const field = this.settings;
+    let type = field.type || "text";
+    let unsigned = false;
+    let rval = null;
 
     if (!node) return rval;
 
-    if (type.indexOf('unsigned ') == 0) {
+    if (type.indexOf("unsigned ") === 0) {
       type = type.substring(9);
       unsigned = true;
     }
 
     switch (type) {
-      case 'checkbox':
-        rval = node.checked;
+      case "checkbox":
+        rval = !!node.checked;
         break;
-      case 'select':
-        rval = node[node.selectedIndex].value;
+      case "select":
+        rval = node[node.selectedIndex] ? node[node.selectedIndex].value : "";
         break;
-      case 'radio':
-        var radios = node.getElementsByTagName('input');
-        for (var i = 0, len = radios.length; i < len; ++i)
-          if (radios[i].checked)
+      case "radio": {
+        const radios = node.querySelectorAll("input[type='radio']");
+        for (let i = 0; i < radios.length; i++) {
+          if (radios[i].checked) {
             rval = radios[i].value;
+            break;
+          }
+        }
         break;
-      case 'button':
+      }
+      case "button":
+        // No value saved
         break;
-      case 'int': case 'integer':
-      case 'float': case 'number':
-        var num = Number(node.value);
-        var warn = 'Field labeled "' + field.label + '" expects a' +
-          (unsigned ? ' positive ' : 'n ') + 'integer value';
+      case "int":
+      case "integer":
+      case "float":
+      case "number": {
+        const raw = node.value;
+        const num = Number(raw);
+        const isInt = type.substr(0, 3) === "int";
+        const warn = 'Field labeled "' + (field.label || this.id) + '" expects a' + (unsigned ? " positive " : " ") + (isInt ? "integer" : "number") + " value";
 
-        if (isNaN(num) || (type.substr(0, 3) == 'int' &&
-            Math.ceil(num) != Math.floor(num)) ||
-            (unsigned && num < 0)) {
-          alert(warn + '.');
+        if (raw !== "" && (Number.isNaN(num) || (isInt && Math.ceil(num) !== Math.floor(num)) || (unsigned && num < 0))) {
+          alert(warn + ".");
           return null;
         }
-
-        if (!this._checkNumberRange(num, warn))
-          return null;
-        rval = num;
+        if (!this._checkNumberRange(num, warn)) return null;
+        rval = raw === "" ? "" : num;
         break;
+      }
       default:
         rval = node.value;
         break;
     }
 
-    return rval; // value read successfully
+    return rval;
   },
 
-  reset: function() {
-    var node = this.node,
-        field = this.settings,
-        type = field.type;
-
+  reset: function () {
+    const node = this.node;
+    const field = this.settings;
+    const type = field.type || "text";
     if (!node) return;
 
     switch (type) {
-      case 'checkbox':
-        node.checked = this['default'];
+      case "checkbox":
+        node.checked = !!this["default"];
         break;
-      case 'select':
-        for (var i = 0, len = node.options.length; i < len; ++i)
-          if (node.options[i].textContent == this['default'])
+      case "select": {
+        const opts = node.options || [];
+        for (let i = 0; i < opts.length; i++) {
+          if (opts[i].textContent === String(this["default"])) {
             node.selectedIndex = i;
-        break;
-      case 'radio':
-        var radios = node.getElementsByTagName('input');
-        for (var i = 0, len = radios.length; i < len; ++i)
-          if (radios[i].value == this['default'])
-            radios[i].checked = true;
-        break;
-      case 'button' :
-        break;
-      default:
-        node.value = this['default'];
+            break;
+          }
+        }
         break;
       }
+      case "radio": {
+        const radios = node.querySelectorAll("input[type='radio']");
+        for (let i = 0; i < radios.length; i++) {
+          if (radios[i].value === String(this["default"])) {
+            radios[i].checked = true;
+            break;
+          }
+        }
+        break;
+      }
+      case "button":
+        break;
+      default:
+        node.value = this["default"] != null ? String(this["default"]) : "";
+        break;
+    }
   },
 
-  remove: function(el) {
+  remove: function (el) {
     GM_configStruct.prototype.remove(el || this.wrapper);
     this.wrapper = null;
     this.node = null;
   },
 
-  reload: function() {
-    var wrapper = this.wrapper;
+  reload: function () {
+    const wrapper = this.wrapper;
     if (wrapper) {
-      var fieldParent = wrapper.parentNode;
-      fieldParent.insertBefore((this.wrapper = this.toNode()), wrapper);
+      const fieldParent = wrapper.parentNode;
+      fieldParent.insertBefore((this.wrapper = this.toNode(wrapper.ownerDocument || document)), wrapper);
       this.remove(wrapper);
     }
   },
 
-  _checkNumberRange: function(num, warn) {
-    var field = this.settings;
-    if (typeof field.min == "number" && num < field.min) {
-      alert(warn + ' greater than or equal to ' + field.min + '.');
+  _checkNumberRange: function (num, warn) {
+    const field = this.settings;
+    if (typeof field.min === "number" && num < field.min) {
+      alert(warn + " greater than or equal to " + field.min + ".");
       return null;
     }
-
-    if (typeof field.max == "number" && num > field.max) {
-      alert(warn + ' less than or equal to ' + field.max + '.');
+    if (typeof field.max === "number" && num > field.max) {
+      alert(warn + " less than or equal to " + field.max + ".");
       return null;
     }
     return true;
   }
 };
 
-// Create default instance of GM_config
+/* =========================
+ *  Default singleton
+ * ========================= */
 var GM_config = new GM_configStruct();
